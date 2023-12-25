@@ -1,0 +1,1001 @@
+---
+title: "AN ANALYSIS OF DIAMOND PRICES"
+author: "MEDHASWETA SEN"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## IMPORTING LIBRARIES AND PACKAGES:
+Here, I have imported Libraries and Packages that I may require fo my analysis going forward. It is easier to install and import these in the beginning to maintain the readability and structure of the code.
+```{r}
+library(ezids)
+library(tidyverse)
+library(readr) 
+library(car)
+library(tidyr)
+library(plotly)
+library(skimr)
+library(dplyr)
+library(htmlwidgets)
+library(IRdisplay)
+library(pedometrics)
+library(data.table)
+library(foreach)
+library(ggplot2)
+library(ggcorrplot)
+library(gridExtra)
+library(grid)
+library(ggExtra)
+library(glmnet)
+library(Metrics)
+library(e1071)
+library(scales)
+```
+## IMPORTING THE DATASET:
+Here I have imported the data set "diamonds.csv" in the variable data. And the first function that I have done to begin my analysis starting with Exploratory Data Analysis is printed the first 5 rows of the data set to get an understanding of how the data looks and how it is tabulated. In the next few steps I will explore more aout the data set before delving into the characteristics of the data itself.
+```{r, results='markup'}
+data <-read.csv("diamonds.csv")
+head(data,5)
+```
+## STRUCTURE AND DIMENSIONS OF THE DATASET:
+The str function in base R gives the basic structure of the data including the variables/column names and their data types. It also gives the number of variables in the data set and the number of observations or rows so that I do not need to find them separately using nrow and ncol functions. Functions like str really help in obtaining multiple information about the data set all at once making it ideal for use in reading and understanding the data set.
+```{r,results='markup'}
+str (data)
+```
+Note: This data set has 53940 obs. and  11 variables.
+
+## FINDING MISSING VALUES:
+Before I begin with finding the basic parameters (Central Tendencies,Dispersion and Quartiles) I needed to check my data set for missing values as their presence can mess with the perception and calculation of the above mentioned parameters.
+```{r,results='markup'}
+sapply(data, function(x) sum(is.na(x)))
+```
+Note: There are no missing values. Which means I can start towards our analysis. But hypothetically speaking, if there were I would graph them by columns and deal with them using the data pre processing and data cleaning tools readily available in R.
+
+## ONE LAST CHECK BEFORE STARTING:
+In the last step I checked to make sure that there are no missing observations or values in the data set of which there are none. But I also like to make sure that there aren't any duplicate observations as repetitions can adversely affect the efficacy of any model that is trained using the data set.
+```{r,results='markup'}
+for (x in names(data)) {
+  unique.obs <- length(unique(data[, x]))
+  if (unique.obs == 1) {
+    data[, x] <- NULL
+  }
+}
+
+sapply(data, function(x) sum(is.null(x)))
+```
+Note: This proves that not only is the data set devoid of missing values, it is also free from repetition in observations and here I have 53940 unique observations to work with on my EDA and subsequent model building.
+
+# EXPLORATORY DATA ANALYSIS:
+
+## FINDING THE 5 POINT SUMMARY AND MEAN OF THE VARIABLES IN THE DATASET:
+This step can be easily done using the command summary in base R.
+```{r,results='markup'}
+summary(data)
+```
+
+```{r echo = TRUE,results='markup'}
+# Theme setting
+data$cut <- factor(data$cut, levels = c('Fair', 'Good', 'Very Good', 'Premium', 'Ideal'))
+
+data$color <- factor(data$color, levels = c('J', 'I', 'H', 'G', 'F', 'E', 'D'))
+
+data$clarity <- factor(data$clarity, levels = c('I1', 'SI2', 'SI1', 'VS2', 'VS1', 'VVS2', 'VVS1', 'IF'))
+theme_set(theme_minimal() + 
+            theme(plot.title = element_text(face = 'bold', colour = 'grey10'), 
+                  plot.subtitle = element_text(colour = 'grey25'), 
+                  panel.grid.major = element_line(colour = 'grey75', size = 0.25), 
+                  panel.grid.minor = element_line(colour = 'grey75', size = 0.25, linetype = 'dashed'), 
+                  legend.title = element_blank(), 
+                  legend.position = 'top', 
+                  legend.spacing.x = unit(0.125, 'cm'), 
+                  legend.background = element_rect(fill = NULL, linetype = 'dotted'), 
+                  strip.background = element_blank(), 
+                  strip.text = element_text(face = 'bold', colour = 'grey25', size = 11.25)))
+
+colour_list <- c('#5CFFA5', '#AE5CFF', '#29FF89', '#9529FF', '#D685B2', '#D6D185', '#85D6A9', '#8589D6')
+```
+
+## DISTRIBUTION OF EACH VARIABLE:
+
+```{r echo = T, fig.width = 10,results='markup'}
+data %>% 
+  select_if(function(x) is.numeric(x)) %>% 
+  gather(key = key, value = value, carat:z) %>% 
+  ggplot(aes(value)) + 
+  geom_histogram(fill = colour_list[1], colour = 'white') + 
+  scale_x_continuous(labels = comma) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(~ key, scales = 'free', ncol = 4) + 
+  labs(x = NULL, y = NULL, 
+       title = 'Distribution by Each Continuous Variable')
+```
+
+Note: Distributions of `Carat` and `Price` are right-skewed.
+
+```{r echo = T,results='markup'}
+
+data %>% 
+  select(cut, color, clarity) %>% 
+  gather(key = key, value = value, cut:clarity) %>% 
+  mutate(value = factor(value, levels = c(levels(data$cut), levels(data$color), levels(data$clarity)))) %>% 
+  ggplot(aes(value)) + 
+  geom_bar(fill = colour_list[1], colour = colour_list[3], size = 1) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(~ key, scales = 'free', ncol = 1) + 
+  labs(x = NULL, y = NULL, 
+       title = 'Distribution by Each Categorical Variable')
+```
+
+## PRICE VS OTHER VARIABLES:
+
+```{r echo = T, fig.width = 7.5,results='markup'}
+data %>% 
+  select_if(function(x) is.numeric(x)) %>% 
+  gather(key = key, value = value, carat, depth, table, x, y,z) %>% 
+  ggplot(aes(value, price)) + 
+  geom_bin2d(bins = 50) + 
+  scale_fill_continuous(type = 'viridis', breaks = c(0, 3000, 6000, 9000), limits = c(0, 10000)) + 
+  scale_y_continuous(labels = comma) + 
+  guides(fill = F) + 
+  facet_wrap(~ key, scales = 'free') + 
+  labs(x = NULL, 
+       title = 'Relationships Between Price and Other Continuous Variables')
+```
+
+Note:Relationships between `Price` and `Carat`, `X`, `Y`, and `Z` are positively correlated and are non-linear.
+     Except for the relationship `Carat` and `Price`, there are some outliers in all plots.
+
+
+## RELATIONSHIP BETWEEN PRICE AND OTHER CATERGORICAL VARIABLE:
+```{r echo = T,results='markup'}
+data %>% 
+  select(price, clarity, color, cut) %>% 
+  gather(key = key, value = value, clarity, color, cut) %>% 
+  mutate(value = factor(value, levels = c(levels(data$cut), levels(data$color), levels(data$clarity)))) %>% 
+  ggplot(aes(value, price)) + 
+  geom_boxplot(fill = colour_list[1], colour = colour_list[2]) + 
+  scale_y_log10(labels = comma) + 
+  labs(x = NULL, 
+       title = 'Relationships Between Price and Other Categorical Variables') + 
+  facet_wrap(~ key, scales = 'free') + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Note: In our common sense, the better the quality of the diamond, the higher the price. But in relationship between `Cut` and `Price`, it doesn't make sense why the median price of Ideal is lower than that of Fair. Other plots also don't make sense. Do we have to believe these results? Is there any factor to affect the price?
+
+## SOME MORE GRAPHS TO VISUALIZE THE DATA BEFORE BEGINNING THE MODEL FITTING:
+```{r}
+data %>% qplot(carat, price, color = cut, data = .)
+```
+
+```{r}
+data %>% qplot(clarity, price, data = ., color = cut, geom = "point")
+```
+```{r}
+data %>% qplot(clarity, cut, data = ., geom = "point", color = color)
+```
+```{r}
+data %>% qplot(x, price, data = ., geom = "smooth")
+```
+```{r}
+data %>% qplot(y, price, data = ., geom = "smooth")
+```
+```{r}
+data %>% qplot(z, price, data = ., geom = "smooth")
+```
+```{r}
+data %>% qplot(table, price, data = ., geom = "smooth")
+```
+```{r}
+data %>% qplot(depth, price, data = ., geom = "smooth")
+```
+```{r}
+data %>% qplot(carat, price, data = ., geom = "smooth")
+```
+```{r}
+data %>%
+  filter(cut == "Fair" | cut == "Ideal") %>%
+  qplot(x, price, data = ., geom = c("point", "smooth"), color = cut)
+```
+```{r}
+data %>%
+  filter(cut == "Fair" | cut == "Ideal") %>%
+  qplot(y, price, data = ., geom = c("point", "smooth"), color = cut)
+```
+```{r}
+data %>%
+  filter(cut == "Fair" | cut == "Ideal") %>%
+  qplot(z, price, data = ., geom = c("point", "smooth"), color = cut)
+```
+```{r}
+data %>%
+  filter(cut == "Fair" | cut == "Ideal") %>%
+  qplot(depth, price, data = ., geom = c("point", "smooth"), color = cut)
+```
+```{r}
+data %>%
+  filter(cut == "Fair" | cut == "Ideal") %>%
+  qplot(table, price, data = ., geom = c("point", "smooth"), color = cut)
+```
+```{r}
+data %>%
+  filter(cut == "Fair" | cut == "Ideal") %>%
+  qplot(carat, price, data = ., geom = c("point", "smooth"), color = cut)
+```
+
+## CORRELATION BETWEEN THE VARIABES:
+
+```{r echo = T,results='markup'}
+temp <- data %>% 
+  select_if(function(x) is.numeric(x)) %>% 
+  cor()
+
+temp[upper.tri(temp, diag = T)] <- 0
+
+temp <- temp %>% 
+  as.data.frame() %>% 
+  mutate(key_1 = rownames(.)) %>% 
+  gather(key = key_2, value = value, carat:z)
+
+temp %>% 
+  mutate(key_1 = factor(key_1, levels = unique(temp$key_1)), 
+         key_2 = factor(key_2, levels = unique(temp$key_2))) %>% 
+  ggplot(aes(key_1, key_2, fill = value)) + 
+  geom_tile(colour = 'white') + 
+  geom_text(data = temp %>% 
+              mutate(value = if_else(value == 0, NA_real_, round(value, 2))), aes(label = value)) + 
+  scale_fill_gradient2(low = colour_list[1],  mid = 'white', high = colour_list[2], midpoint = 0, limit = c(-1, 1)) + 
+  guides(size = F) + 
+  labs(x = NULL, y = NULL, 
+       title = 'Pearson Correlation Between Variables')
+```
+
+Note: Categorical variables (`Cut`, `Color`, and `Clarity`) are excluded in this correlation matrix plot. But it's possible to put these variables in the correlation matrix because they are ordinal categorical variables. In that case, you should use Spearman or Kendall correlation coefficient instead of Pearson correlation coefficient.
+
+Note: `Price`, `Carat`, `X`, `Y`, and `Z` are highly correlated.
+
+## ZTEST ON RATIO TYPE VARIABLES:
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ztest95 = z.test(x=data$x, sigma.x = 2.31) # default conf.level = 0.95
+ztest95
+ztest99 = z.test(x=data$x, sigma.x = 2.31, conf.level=0.99 )
+ztest99
+ztest50 = z.test(x=data$x, sigma.x = 2.31, conf.level=0.50 )
+ztest50
+names(ztest99)
+ztest99$conf.int
+# ztest99$alternative
+ztest99$estimate
+ztest99$statistic
+ztest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ztest95 = z.test(x=data$y, sigma.x = 2.31) # default conf.level = 0.95
+ztest95
+ztest99 = z.test(x=data$y, sigma.x = 2.31, conf.level=0.99 )
+ztest99
+ztest50 = z.test(x=data$y, sigma.x = 2.31, conf.level=0.50 )
+ztest50
+names(ztest99)
+ztest99$conf.int
+# ztest99$alternative
+ztest99$estimate
+ztest99$statistic
+ztest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ztest95 = z.test(x=data$z, sigma.x = 2.31) # default conf.level = 0.95
+ztest95
+ztest99 = z.test(x=data$z, sigma.x = 2.31, conf.level=0.99 )
+ztest99
+ztest50 = z.test(x=data$z, sigma.x = 2.31, conf.level=0.50 )
+ztest50
+names(ztest99)
+ztest99$conf.int
+# ztest99$alternative
+ztest99$estimate
+ztest99$statistic
+ztest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ztest95 = z.test(x=data$depth, sigma.x = 2.31) # default conf.level = 0.95
+ztest95
+ztest99 = z.test(x=data$depth, sigma.x = 2.31, conf.level=0.99 )
+ztest99
+ztest50 = z.test(x=data$depth, sigma.x = 2.31, conf.level=0.50 )
+ztest50
+names(ztest99)
+ztest99$conf.int
+# ztest99$alternative
+ztest99$estimate
+ztest99$statistic
+ztest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ztest95 = z.test(x=data$table, sigma.x = 2.31) # default conf.level = 0.95
+ztest95
+ztest99 = z.test(x=data$table, sigma.x = 2.31, conf.level=0.99 )
+ztest99
+ztest50 = z.test(x=data$table, sigma.x = 2.31, conf.level=0.50 )
+ztest50
+names(ztest99)
+ztest99$conf.int
+# ztest99$alternative
+ztest99$estimate
+ztest99$statistic
+ztest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ztest95 = z.test(x=data$carat, sigma.x = 2.31) # default conf.level = 0.95
+ztest95
+ztest99 = z.test(x=data$carat, sigma.x = 2.31, conf.level=0.99 )
+ztest99
+ztest50 = z.test(x=data$carat, sigma.x = 2.31, conf.level=0.50 )
+ztest50
+names(ztest99)
+ztest99$conf.int
+# ztest99$alternative
+ztest99$estimate
+ztest99$statistic
+ztest99$method
+```
+
+
+## TTEST ON RATIO TYPE VARIABLES:
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ttest95 = t.test(x=data$x, sigma.x = 2.31) # default conf.level = 0.95
+ttest95
+ttest99 = t.test(x=data$x, sigma.x = 2.31, conf.level=0.99 )
+ttest99
+ttest50 = t.test(x=data$x, sigma.x = 2.31, conf.level=0.50 )
+ttest50
+names(ztest99)
+ttest99$conf.int
+# ztest99$alternative
+ttest99$estimate
+ttest99$statistic
+ttest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ttest95 = t.test(x=data$y, sigma.x = 2.31) # default conf.level = 0.95
+ttest95
+ttest99 = t.test(x=data$y, sigma.x = 2.31, conf.level=0.99 )
+ttest99
+ttest50 = t.test(x=data$y, sigma.x = 2.31, conf.level=0.50 )
+ttest50
+names(ztest99)
+ttest99$conf.int
+# ztest99$alternative
+ttest99$estimate
+ttest99$statistic
+ttest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ttest95 = t.test(x=data$z, sigma.x = 2.31) # default conf.level = 0.95
+ttest95
+ttest99 = t.test(x=data$z, sigma.x = 2.31, conf.level=0.99 )
+ttest99
+ttest50 = t.test(x=data$z, sigma.x = 2.31, conf.level=0.50 )
+ttest50
+names(ztest99)
+ttest99$conf.int
+# ztest99$alternative
+ttest99$estimate
+ttest99$statistic
+ttest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ttest95 = t.test(x=data$depth, sigma.x = 2.31) # default conf.level = 0.95
+ttest95
+ttest99 = t.test(x=data$depth, sigma.x = 2.31, conf.level=0.99 )
+ttest99
+ttest50 = t.test(x=data$depth, sigma.x = 2.31, conf.level=0.50 )
+ttest50
+names(ztest99)
+ttest99$conf.int
+# ztest99$alternative
+ttest99$estimate
+ttest99$statistic
+ttest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ttest95 = t.test(x=data$table, sigma.x = 2.31) # default conf.level = 0.95
+ttest95
+ttest99 = t.test(x=data$table, sigma.x = 2.31, conf.level=0.99 )
+ttest99
+ttest50 = t.test(x=data$table, sigma.x = 2.31, conf.level=0.50 )
+ttest50
+names(ztest99)
+ttest99$conf.int
+# ztest99$alternative
+ttest99$estimate
+ttest99$statistic
+ttest99$method
+```
+```{r,results='markup'}
+loadPkg("BSDA") # for z.test
+ttest95 = t.test(x=data$carat, sigma.x = 2.31) # default conf.level = 0.95
+ttest95
+ttest99 = t.test(x=data$carat, sigma.x = 2.31, conf.level=0.99 )
+ttest99
+ttest50 = t.test(x=data$carat, sigma.x = 2.31, conf.level=0.50 )
+ttest50
+names(ztest99)
+ttest99$conf.int
+# ztest99$alternative
+ttest99$estimate
+ttest99$statistic
+ttest99$method
+```
+# MODELLING:
+
+For modeling, I use the two data sets. One is the data without a transformation, and the other is the log-transformed data.
+
+**[Checking skewness in independent variables (Before log-transformation)]**
+
+```{r echo = T,results='markup'}
+sapply(data %>% 
+         select_if(function(x) is.numeric(x)), function(x) skewness(x))
+```
+
+**[Checking skewness in independent variables (After log-transformation)]**
+
+```{r echo = T,results='markup'}
+# Applying log transformation
+
+data_transformed <- data %>% 
+  mutate(price = log(price), 
+         carat = log(carat), 
+         table = log(table), 
+         x = log(x + 1), 
+         y = log(y + 1), 
+         z = log(z + 1))
+
+# Checking skewness in independent variables (After log transformation)
+
+sapply(data_transformed %>%
+         select_if(function(x) is.numeric(x)), function(x) skewness(x))
+
+# Encoding categorical features as a one-hot numeric array.
+
+model_matrix_transformed <- model.matrix(~ ., data_transformed %>% 
+                                           select(-price))[, -1]
+```
+
+- In log-transformed data, I transformed the scale of all variables into a logarithmic scale except for `X`, `Y`, and `Z`. In the cases of `X`, `Y`, and `Z`, after adding 1, then I transformed the scale of them into a logarithmic scale. This is because logarithmic doesn't define zero.
+
+- Through log-transformation, the skewness of each variable is closer to zero than before.
+
+- I changed the data type of data set because except for function `lm()` for multiple linear regression, the other modeling functions require `matrix`, not `data.frame`.
+
+## Multiple Linear Regression
+
+$$
+y_i = \beta_0 + \beta_1x_{i1} + \beta_2x_{i2} + ... + \beta_px_{ip}\\
+~ \\
+\begin{align}
+    Where, ~ for ~ i &= n ~ obervations:\\
+    y_i &= dependent ~ variable\\
+    x_i &= explanatory ~ variables\\
+    \beta_0 &= y-intercept\\
+    \beta_p &= slope ~ coefficients ~ for ~ each ~ explantory ~ variable\\
+    \beta_p &= slope ~ coefficients ~ for ~ each ~ explantory ~ variable\\
+    \epsilon &= the ~ model's ~ error ~ term
+\end{align}
+$$
+
+**Assumptions:**
+
+- There is a linear relationship between the dependent variable and the independent variables.
+
+- The independent variables are not too highly correlated with each other.
+
+- $y_i$ observations are selected independently and randomly from the population.
+
+- Residuals should be normally distributed with a mean of 0 and constant variance.
+
+### Fitting MLR Model Into Untransformed Data
+
+Before creating a multiple linear regression model, we have to check there is multicollinearity in data. If there is multicollinearity, it’s better to remove it.
+
+**Problems of multicollinearity in linear regression**
+
+- It causes incorrect interpretation of each explanatory variable because it inflates the variances of the parameter estimates.
+
+- If the dataset is not representative of the population, it can cause overfitting.
+
+In R, there is a really nice function. It’s `stepVIF`. If you set the threshold and put an object of `lm` in this function, it could remove multicollinearity. I set the threshold as 5 (I followed the rule of thumb).
+
+---
+
+From [R Documentation](https://www.rdocumentation.org/packages/pedometrics/versions/0.6-6/topics/stepVIF)
+
+The process of `stepVIF`
+
+[Step 1] Start computing VIF (Variance Inflation Factor) by each variable.
+
+[Step 2] Evaluate if any of the predictor variables have a VIF larger than the specified threshold.
+
+[Step 3] If there is only one predictor variable that does not meet the VIF threshold, it is automatically removed from the model, and no further processing occurs. When there are two or more predictor variables that do not meet the VIF threshold, `stepVIF` fits a linear model between each of them and the dependent variable. The predictor variable with the lowest adjusted R-squared coefficient is dropped from the model, and new coefficients are calculated, resulting in a new linear model.
+
+[Step 4] This process lasts until all predictor variables included in the new model meet the VIF threshold.
+
+---
+
+**[Process of removing multicollinearity]**
+
+```{r echo = T,results='markup'}
+########################################
+# Modeling: Multiple Linear Regression #
+########################################
+
+# Dropping the variables for removing multicollinearity
+
+model_lm <- lm(price ~ ., data)
+
+stepVIF(model = model_lm, threshold = 5, verbose = T) # Dropped variables: Z, Y, X
+```
+
+- We can see that generalized variance factor of `Carat`, `X`, `Y`, and `Z` are greater than 5 in iteration: 1. It means that there is collinearity. So among them, `Z` with the lowest adjusted R-squared is removed. In this way, `Z`, `Y`, and `X` are dropped.
+
+**[Result of Modeling]**
+
+```{r echo = T,results='markup'}
+model_lm <- lm(price ~ ., data %>% 
+                 select(-x, -y, -z))
+
+summary(model_lm)
+```
+
+- Wow! All p-value of independent variables and the p-value of F-statistic are statistically significant at a significance level of 0.05. Also, its adjusted R-squared is 0.916. It indicates that about 91% of the variance for a dependent variable is explained by this model.
+
+### Fitting MLR Model Into Log-Transformed Data
+
+**Reasons for applying data transformation:**
+
+- Transformation on a dependent variable will change the distribution of error terms in a model. It's suitable for satisfying the assumption of linear regression.
+
+- Non linearities between the dependent variable and an independent variable often can be linearized by transforming the independent variable.
+
+**[Process of removing multi-collinearity]**
+
+```{r echo = T,results='markup'}
+# Dropping the variables for removing multi-collinearity
+
+model_lm_transformed <- lm(price ~ ., data_transformed)
+
+stepVIF(model = model_lm_transformed, threshold = 5, verbose = T) # Dropped variables: Z, Y, X
+```
+
+- Like the case of the model using untransformed data, `X`, `Y`, and `Z` are dropped for removing collinearity.
+
+**[Result of Modeling]**
+
+```{r echo = T,results='markup'}
+model_lm_transformed <- lm(price ~ ., data_transformed %>% 
+                 select(-x, -y, -z))
+
+summary(model_lm_transformed)
+```
+
+- `Depth` and `Table` are statistically significant at a significance level of 0.05. But when applying a more conservative significance level, they are not statistically significant. So we have to decide to do feature selection or not. In this kernel, I do feature selection because when considering the p-value of other variables, their p-values are quite large.
+
+Stepwise regression, forward selection, backward elimination are frequently used techniques for feature selection in regression model. Among them, I use backward elimination. If you want to know more about these techniques, click [here](https://towardsdatascience.com/feature-selection-techniques-in-regression-model-26878fe0e24e).
+
+**[Iteration 1] Dropped variable: Table**
+
+```{r echo = T,results='markup'}
+summary(model_lm_transformed)
+```
+
+**[Iteration 2] Dropped variable: Table**
+
+```{r echo = T,results='markup'}
+
+model_lm_transformed <- lm(price ~ ., data_transformed %>% 
+                 select(-x, -y, -z, -table))
+
+summary(model_lm_transformed)
+```
+
+**[Iteration 3] No dropped variable**
+
+```{r echo = T,results='markup'}
+model_lm_transformed <- lm(price ~ ., data_transformed %>% 
+                 select(-x, -y, -z, -table, -depth))
+
+summary(model_lm_transformed)
+```
+
+- In [Iteration 1], `Table` is dropped because the p-value of this is quite higher than that of other variables.
+
+- After dropping `Table`, in [Iteration 2], `Depth` is dropped for the same reason in [Iteration 1].
+
+- In [Iteration 3], there is no one that is not statistically significant. So this is our final model!
+
+- In this model, though there are fewer independent variables than the model fitting into untransformed data, the adjusted R-squared of this model (0.9826) is greater than that of the model fitting into untransformed data (0.916).
+
+## Lasso Regression
+
+From here, I use log-transformed data for fitting a model.
+
+$$
+\hat{\beta}_{lasso}=\arg \min_\beta\sum_{i=1}^{n}(y_i - \sum_{j}x_{ij}\beta_j)^2 + \lambda\sum_{j=1}^p|\beta_j|
+$$
+
+**Characteristics:**
+
+- Lasso (least absolute shrinkage and selection operator) regression performs L1 regularization. The absolute value of the magnitude of the coefficient is added as the penalty term to the loss function. So some variables can become zero because of L1 regularization. It means that by doing this, it can do feature selection and prevent overfitting.
+
+- If a group of predictors is highly correlated among themselves, lasso regression tends to pick only one of them and will shrink the others to zero.
+
+- It has a tuning parameter, $\lambda$. As $\lambda$ increases, more coefficients likely to be zero and bias increase. If it is infinite, then all of the coefficients are zero. As it decreases, variance increases.
+
+**[Code for creating lasso regression model]**
+
+```{r echo = T,results='markup'}
+cv_lasso <- cv.glmnet(x = model_matrix_transformed, 
+                      y = data_transformed$price, 
+                      alpha = 1)
+
+model_lasso <- glmnet(x = model_matrix_transformed, 
+                      y = data_transformed$price, 
+                      alpha = 1, 
+                      lambda = cv_lasso$lambda.min)
+```
+
+- `glmnet` is the package that fits a generalized linear model. Using this package, we can create lasso, ridge, and elastic-net models. For creating lasso model, we have to set the alpha = 1.
+
+## Ridge Regression
+
+$$
+\hat{\beta}_{ridge}=\arg \min_\beta\sum_{i=1}^{n}(y_i - \sum_{j}x_{ij}\beta_j)^2 + \lambda\sum_{j=1}^p|\beta_j|^2
+$$
+
+**Characteristics:**
+
+- Ridge regression performs L2 regularization. So a squared magnitude of the coefficient is added as the penalty term to the loss function. It can prevent overfitting.
+
+- It also has a tuning parameter, $\lambda$ like lasso regression. If $\lambda$ is zero, then the equation will be the same with multiple linear regression formula. But if $\lambda$ is very large, it will lead to under-fitting (It's the same with lasso regression). 
+
+- It doesn't do feature selection like lasso regression. In other words, it tends to shrink coefficients to near zero but can not produce a
+parsimonious model. If there are highly correlated more than two variables, it will do grouped selection.
+
+**[Code for fitting ridge regression model]**
+
+```{r echo = T,results='markup'}
+cv_ridge <- cv.glmnet(x = model_matrix_transformed,
+                      y = data_transformed$price, 
+                      alpha = 0)
+
+model_ridge <- glmnet(x = model_matrix_transformed, 
+                      y = data_transformed$price, 
+                      alpha = 0, lambda = cv_ridge$lambda.min)
+```
+
+- For creating ridge model, we have to set the *alpha* = 0 in `glmnet` package.
+
+## Elastic-Net Regression
+
+$$
+\hat{\beta}_{elastic-net}=\arg \min_\beta\sum_{i=1}^{n}(y_i - \sum_{j}x_{ij}\beta_j)^2 + \lambda(\frac{1 - \alpha}{2}\sum_{j=1}^p|\beta_j|^2 + \alpha\sum_{j=1}^p|\beta_j|)
+$$
+**Characteristics:**
+
+- Elastic-net regression is a regularized regression that linearly combines the L1 and L2 penalties of the lasso and ridge regressions.
+
+- If there is a group of highly correlated variables, then the lasso regression which performs L1 regularization tends to select only one variable from a group. But by adding L2 penalty, it is overcome and encourages a grouping effect in the presence of highly correlated independent variables. And it has no limitation on the number of selected variables.
+
+**[Code for creating elastic-net regression model]**
+
+```{r echo = T ,results='markup'}
+alpha = seq(0.1, 0.9, 0.05)
+
+result_elastic_net <- foreach(i = alpha, .combine = rbind) %dopar% {
+  cv_elastic_net <- cv.glmnet(x = model_matrix_transformed,
+                              y = data_transformed$price, 
+                              alpha = i, parallel = T, standardize = T)
+  
+  data.frame(alpha = i, 
+             cvm = cv_elastic_net$cvm[cv_elastic_net$lambda == cv_elastic_net$lambda.min], 
+             lambda.min = cv_elastic_net$lambda.min)
+}
+
+model_elastic_net <- glmnet(x = model_matrix_transformed, 
+                            y = data_transformed$price, 
+                            alpha = result_elastic_net$alpha[result_elastic_net$cvm == min(result_elastic_net$cvm)], 
+                            lambda = result_elastic_net$lambda.min[result_elastic_net$cvm == min(result_elastic_net$cvm)])
+```
+
+- Unlike lasso and ridge regression, we don't have to set alpha = 0 or alpha = 1. It is also an essential factor in controlling regularization. So I search the alpha from 0.1 to 0.9 by 0.05 for finding an optimal one.
+
+# Comparison Between Linear Models
+
+## Coefficients
+
+```{r echo = T, fig.height = 7.5,results='markup',}
+df_coefficients_lm <- data.frame(variable = c(names(model_lm$coefficients)[-1], 'x', 'y', 'z'), 
+                                 coefficient = c(as.vector(model_lm$coefficients)[-1], 0, 0, 0), 
+                                 model = rep('MLR Model Fitting Into Untransformed Data', 24))
+
+df_coefficients_lm_transformed <- data.frame(variable = c(names(model_lm_transformed$coefficients)[-1], 'depth', 'table', 'x', 'y', 'z'), 
+                                             coefficient = c(as.vector(model_lm_transformed$coefficients)[-1], 0, 0, 0, 0, 0), 
+                                             model = rep('MLR Model Fitting Into Log-Transformed Data', 24))
+
+df_coefficients_lm %>% 
+  bind_rows(df_coefficients_lm_transformed) %>% 
+  mutate(variable = factor(variable, levels = df_coefficients_lm$variable)) %>% 
+  ggplot(aes(variable, coefficient, colour = model, fill = model, group = 1)) + 
+  geom_point(size = 5) + 
+  geom_line(size = 1.5) + 
+  scale_color_manual(values = colour_list[1:2]) + 
+  scale_fill_manual(values = colour_list[1:2]) + 
+  facet_wrap(~ model, scales = 'free') + 
+  labs(x = NULL, y = 'Coefficient', 
+       title = 'Coefficients by Each MLR') +
+  coord_flip() + 
+  theme(strip.background = element_blank(), 
+        strip.text = element_blank())
+```
+
+- The scales of the coefficients in the two models differ, but the distributions of coefficients are quite similar.
+
+- In the model fitting into untransformed data, `Table` and `Depth` were not dropped, but the coefficients of them are close to zero. From these two models, we can conclude that these two variables are not significant factors to affect the price of a diamond.
+
+- In the visualization of the relationship between `Price` and `Cut`, we saw the median price of Ideal is lower than that of Fair. So if we only see this visualization, we are likely to think Fair is better than Ideal. But in these two models, In order of CutGood, CutVeryGood, CutPremium, CutIdeal, their coefficients are large. This result is consistent with our prior information. As the case of `Cut`, the result of coefficients of `Color` and `Clarity` are consistent with our prior knowledge. Then why it doesn't make sense in their visualizations? I'll leave this to your task(?).
+
+- From these models, we can conclude that the categorical variable that affects the price of a diamond the most is `Clarity`, and the continuous variable that affects the price of a diamond the most is `Carat`.
+
+```{r echo = F, fig.height = 7.5, fig.width = 10,results='markup'}
+df_coefficients_lm_transformed <- data.frame(variable = c(names(model_lm_transformed$coefficients)[-1], 'depth', 'table', 'x', 'y', 'z'), 
+                                             coefficient = c(as.vector(model_lm_transformed$coefficients)[-1], 0, 0, 0, 0, 0), 
+                                             model = rep('MLR Regression Model', 24))
+
+df_coefficients_lasso <- data.frame(variable = colnames(model_matrix_transformed), 
+                                    coefficient = as.vector(model_lasso$beta), 
+                                    model = rep('Lasso Regression Model'))
+
+df_coefficients_ridge <- data.frame(variable = colnames(model_matrix_transformed), 
+                                    coefficient = as.vector(model_ridge$beta), 
+                                    model = rep('Ridge Regression Model'))
+
+df_coefficients_elastic_net <- data.frame(variable = colnames(model_matrix_transformed), 
+                                          coefficient = as.vector(model_elastic_net$beta), 
+                                          model = rep('Elastic-Net Regression Model'))
+
+df_coefficients_lm_transformed %>% 
+  bind_rows(df_coefficients_lasso) %>% 
+  bind_rows(df_coefficients_ridge) %>% 
+  bind_rows(df_coefficients_elastic_net) %>% 
+  mutate(variable = factor(variable, levels = df_coefficients_lm$variable), 
+         model = factor(model, levels = c('MLR Regression Model', 'Lasso Regression Model', 'Ridge Regression Model', 'Elastic-Net Regression Model'))) %>% 
+  ggplot(aes(variable, coefficient, colour = model, fill = model, group = 1)) + 
+  geom_point(size = 5) + 
+  geom_line(size = 1.5) + 
+  scale_color_manual(values = colour_list[5:8]) + 
+  scale_fill_manual(values = colour_list[5:8]) + 
+  facet_wrap(~ model, scales = 'free', ncol = 4) + 
+  labs(x = NULL, y = 'Coefficient', 
+       title = 'Coefficients by Each Linear Model \nFitting Into Log-Transformed Data') + 
+  coord_flip() + 
+  theme(strip.background = element_blank(), 
+        strip.text = element_blank())
+```
+
+- Except for the ridge regression model, the coefficients for the all models have quite similar distributions.
+
+- In ridge regression model, the coefficients of `X`, `Y`, and `Z` are not zero and greater than that of `Carat` because this model performed grouped selection. Except for this model, the coefficients of `X`, `Y`, and `Z` for all models are zero or closer to zero.
+
+- The coefficients of lasso regression model and elastic-net regression model are about the same distribution.
+
+## Performance
+
+```{r echo = T,results='markup'}
+# Function for performance evaluation
+
+df_performance <- NULL
+
+get_metrics <- function(actual, predicted, model_name, dataset) {
+  df_temp <- data.frame(model = model_name,  
+                        RMSE = rmse(actual, predicted), 
+                        MAE = mae(actual, predicted), 
+                        MAPE = mape(actual, predicted), 
+                        RMSLE = rmsle(actual, predicted))
+  
+  df_performance <<- bind_rows(df_performance, df_temp)
+}
+
+# Splitting dataset into 10-fold
+
+list_10_fold_id <- list()
+
+temp_id <- 1:nrow(data)
+
+for (i in 1:10) {
+
+  list_10_fold_id[[i]] <- sample(temp_id, nrow(data)*0.1)
+  
+  temp_id <<- temp_id[!(temp_id %in% list_10_fold_id[[i]])]
+}
+
+# 10-folds cross validation
+
+for (i in 1:10) {
+
+id_valid <- list_10_fold_id[[i]]
+
+id_train <- unlist(list_10_fold_id)[!(unlist(list_10_fold_id) %in% list_10_fold_id[[i]])]
+
+# MLR model fitting into untransformed data
+
+model_lm <- lm(price ~ ., data[id_train, ] %>% 
+                 select(-x, -y, -z))
+
+# MLR model fitting into log-transformed data
+
+model_lm_transformed <- lm(price ~ ., data_transformed[id_train, ] %>% 
+                             select(-x, -y, -z, -table, -depth))
+
+# Lasso regression model
+
+cv_lasso <- cv.glmnet(x = model_matrix_transformed[id_train, ],
+                      y = data_transformed$price[id_train], 
+                      alpha = 1)
+
+model_lasso <- glmnet(x = model_matrix_transformed[id_train, ], 
+                      y = data_transformed$price[id_train], 
+                      alpha = 1, lambda = cv_lasso$lambda.min)
+
+# Ridge regression model
+
+cv_ridge <- cv.glmnet(x = model_matrix_transformed[id_train, ],
+                      y = data_transformed$price[id_train], 
+                      alpha = 0)
+
+model_ridge <- glmnet(x = model_matrix_transformed[id_train, ], 
+                      y = data_transformed$price[id_train], 
+                      alpha = 0, lambda = cv_ridge$lambda.min)
+
+# Elastic-net regression model
+
+alpha = seq(0.1, 0.9, 0.05)
+
+result_elastic_net <- foreach(i = alpha, .combine = rbind) %dopar% {
+  cv_elastic_net <- cv.glmnet(x = model_matrix_transformed[id_train, ],
+                              y = data_transformed$price[id_train], 
+                              alpha = i, parallel = T, standardize = T)
+  
+  data.frame(alpha = i, 
+             cvm = cv_elastic_net$cvm[cv_elastic_net$lambda == cv_elastic_net$lambda.min], 
+             lambda.min = cv_elastic_net$lambda.min)
+}
+
+model_elastic_net <- glmnet(x = model_matrix_transformed[id_train, ], 
+                            y = data_transformed$price[id_train], 
+                            alpha = result_elastic_net$alpha[result_elastic_net$cvm == min(result_elastic_net$cvm)], 
+                            lambda = result_elastic_net$lambda.min[result_elastic_net$cvm == min(result_elastic_net$cvm)])
+
+# Measuring the performances of the models
+
+get_metrics(data$price[id_valid],
+            predict(model_lm, data[id_valid, ]), 'MLR Model Fitting Into Untransformed Data')
+
+get_metrics(data$price[id_valid],
+            exp(predict(model_lm_transformed, data_transformed[id_valid, ])), 'MLR Model Fitting Into Log-Transformed Data')
+
+get_metrics(data$price[id_valid],
+            exp(predict(model_lasso, model_matrix_transformed[id_valid, ])), 'Lasso Regression Model')
+
+get_metrics(data$price[id_valid],
+            exp(predict(model_ridge, model_matrix_transformed[id_valid, ])), 'Ridge Regression Model')
+
+get_metrics(data$price[id_valid],
+            exp(predict(model_elastic_net, model_matrix_transformed[id_valid, ])), 'Elastic-Net Regression Model')
+}
+```
+
+```{r echo = T,results='markup'}
+df_performance %>% 
+  filter(model %in% c('MLR Model Fitting Into Untransformed Data', 'MLR Model Fitting Into Log-Transformed Data')) %>% 
+  select(-RMSLE) %>% 
+  group_by(model) %>% 
+  summarise(RMSE = mean(RMSE), 
+            MAE = mean(MAE), 
+            MAPE = mean(MAPE)) %>% 
+  gather(key = key, value = value, RMSE, MAE, MAPE) %>% 
+  ggplot(aes(model, value, colour = model)) + 
+  geom_point(size = 5) + 
+  scale_color_manual(values = colour_list[1:2]) + 
+  facet_wrap(~ key, scale = 'free') + 
+  labs(y = NULL, 
+       title = 'Performance by Each MLR') + 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+```
+
+- We checked some relationships between continuous variables are non-linear through EDA. So it can be seen that the limit of the linear model has been overcome by using log-transformed data.
+
+```{r echo = T,results='markup'}
+temp <- df_performance %>% 
+  filter(!model %in% c('MLR Model Fitting Into Untransformed Data'))
+
+temp <- temp %>% 
+  mutate(model = if_else(model == 'MLR Model Fitting Into Log-Transformed Data', 'MLR Model', model))
+
+temp %>% 
+  group_by(model) %>% 
+  summarise(RMSE = mean(RMSE), 
+            MAE = mean(MAE), 
+            MAPE = mean(MAPE), 
+            RMSLE = mean(RMSLE)) %>% 
+  gather(key = key, value = value, RMSE:RMSLE) %>% 
+  mutate(model = factor(model, levels = unique(temp$model))) %>% 
+  ggplot(aes(model, value, colour = model)) + 
+  geom_point(size = 5) + 
+  scale_color_manual(values = colour_list[5:8]) + 
+  scale_y_continuous(breaks = pretty_breaks()) + 
+  facet_wrap(~ key, scale = 'free', ncol = 4) + 
+  labs(y = NULL, 
+       title = 'Performance by Each Linear Model \nFitting Into Log-Transformed Data') + 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+```
+
+- In ridge model, their performance is worse than others because of grouped selection.
+
+- The performances of all models are similar except for ridge model, but MLR is the best among them.
+
+Let's see the result of the best linear model! XD
+
+```{r echo = T,results='markup'}
+model_lm_transformed <- lm(price ~ ., data_transformed %>% 
+                             select(-x, -y, -z, -table, -depth))
+
+df_result <- data.frame(actual = data_transformed$price, 
+                        pred = model_lm_transformed$fitted.values)
+
+df_result %>% 
+  ggplot(aes(actual, pred)) + 
+  geom_bin2d(bins = 175) + 
+  geom_abline(slope = 1, intercept = 0, colour = 'red', linetype = 'dashed', size = 0.75) + 
+  scale_fill_continuous(type = 'viridis') + 
+  scale_x_continuous(labels = comma) + 
+  scale_y_continuous(labels = comma) + 
+  guides(fill = F) + 
+  labs(x = 'log(Actual Price)', y = 'log(Predicted Price)', 
+       title = 'Result of \nMLR Model Fitting Into Log-Transformed Data') + 
+  annotate("text", x = 7, y = 9, label = "R[adj]^2 == 0.9826", parse = T, colour = 'grey25', vjust = 1, size = 5)
+```
+```{r}
+model <- model_lm_transformed <- lm(price ~ ., data_transformed %>% 
+                             select(-x, -y, -z, -table, -depth))
+
+par(mfrow = c(2, 2))
+plot(model)
+```
+Note: This model doesn't violate the assumption of homoscedasticity.
+N.B:
+In the case of ridge model, we have to normalize all variables before creating a model. If not, the only large scale variables would be penalized. But since this data doesn't have one I have avoided the step here to keep the code simple.
+
+
+
+
