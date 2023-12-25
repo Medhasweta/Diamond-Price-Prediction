@@ -1,9 +1,5 @@
 # An Analysis of Diamond Prices
 
-**Author:** Medhasweta Sen
-
-**Date:** Auto-updated to current date
-
 ## Overview
 
 This project presents a comprehensive analysis of diamond prices using various statistical and machine learning techniques, structured in R Markdown, integrating code and documentation. The primary focus is on exploratory data analysis, data visualization, and predictive modeling.
